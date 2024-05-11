@@ -1,6 +1,8 @@
 # karaoke-lyrics-card
 A card for Home Assistant that shows the lyrics for the song that is currently playing.
 
+![Untitled video (1)](https://github.com/lukegackle/karaoke-lyrics-card/assets/33621585/07496475-d243-41ee-841a-d09884ee9dca)
+
 This card has been designed to with with a liblrc server, you can also use the online liblrc api, I decided to host a local version of liblrc.
 
 Example card usage:
