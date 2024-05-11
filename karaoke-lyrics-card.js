@@ -25,8 +25,9 @@ class KaraokeLyricsCard extends LitElement {
 
     // To update card every half second
     this._timeUpdater = 1;
-    setInterval(() => {this._timeUpdater++;}, 500);
-
+    var intervalid = setInterval(() => { this._timeUpdater++; }, 600);
+    console.log(intervalid);
+    localStorage.setItem("intervalid", intervalid);
     // Event listener bindings (https://developers.home-assistant.io/blog/2023/07/07/action-event-custom-cards/)
 
     this.addEventListener("click", this._tap);
@@ -139,8 +140,11 @@ class KaraokeLyricsCard extends LitElement {
 
         }
         else {
-          //New song playing
-          console.log(this._mediaArtist + " - " + this._mediaTitle);
+            //New song playing
+            this._parsedLyrics = "";
+            this._currentLyric = "";
+            this._currentLyrics = "";
+            console.log(this._mediaArtist + " - " + this._mediaTitle + " Duration: " + this._mediaDuration + " media position: " + this._mediaPosition);
             var url = "http://" + lrclib_server + "/api/get?artist_name=" + this._mediaArtist + "&track_name=" + this._mediaTitle + "&album_name=" + this._mediaAlbum + "&duration=" + this._mediaDuration;
             loadJSON(url, success, error);
             localStorage.setItem("mediaTitle", this._mediaTitle);
@@ -154,6 +158,7 @@ class KaraokeLyricsCard extends LitElement {
         }
       }
       else {
+        clearInterval(localStorage.getItem("intervalid"));
         return html``;
       }
 
@@ -183,12 +188,8 @@ class KaraokeLyricsCard extends LitElement {
     if(this._mouseIsDownTriggered == false) {
       setTimeout(() => {
         if (this._doubleClickTriggered == false) {
-          if (this._tapAction == "toggle") {
-            this._toggle_func();
-          } else if (this._tapAction == "more_info") {
+          if (this._tapAction == "more_info") {
             this._moreInfo_func();
-          } else if (this._tapAction == "cancel") {
-            this._cancel_func();
           }
         }
       }, 200);
@@ -197,12 +198,8 @@ class KaraokeLyricsCard extends LitElement {
 
   _double_tap(e) {
     this._doubleClickTriggered = true;
-    if (this._doubleTapAction == "toggle") {
-      this._toggle_func();
-    } else if (this._doubleTapAction == "more_info") {
+    if (this._doubleTapAction == "more_info") {
       this._moreInfo_func();
-    } else if (this._doubleTapAction == "cancel") {
-      this._cancel_func();
     }
     setTimeout(() => {
       this._doubleClickTriggered = false;
@@ -214,12 +211,8 @@ class KaraokeLyricsCard extends LitElement {
     setTimeout(() => {
       if(this._mouseIsDown) {
         this._mouseIsDownTriggered = true;
-        if (this._holdAction == "toggle") {
-          this._toggle_func();
-        } else if (this._holdAction == "more_info") {
+        if (this._holdAction == "more_info") {
           this._moreInfo_func();
-        } else if (this._holdAction == "cancel") {
-          this._cancel_func();
         }
       }
     }, 1000);
@@ -322,6 +315,9 @@ function success(response) {
   if (response.hasOwnProperty('statusCode')) {
     if (response.statusCode !== 404) {
       localStorage.setItem("parsedLyrics", "");
+      this._parsedLyrics = "";
+      this._currentLyric = "";
+      this._currentLyrics = "";
       console.log("Status code 404")
       return false;
     }
@@ -332,7 +328,11 @@ function success(response) {
 }
 
 function error(response) {
+  console.log("Error fetching lyrics");
   localStorage.setItem("parsedLyrics", "");
+  this._parsedLyrics = "";
+  this._currentLyric = "";
+  this._currentLyrics = "";
 }
 
 function parseLyric(lrc) {
