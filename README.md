@@ -9,7 +9,7 @@ Example card usage:
 ```
 type: custom:karaoke-lyrics-card
 media_player: media_player.plex_plex_cast_chromecast
-lrclib_server: 192.168.2.8:3300
+lrclib_server: 192.168.1.8:3300
 adjustment_seconds: 0.5
 ```
 
