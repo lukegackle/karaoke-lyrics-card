@@ -133,11 +133,26 @@ class KaraokeLyricsCard extends LitElement {
 
         if (this._mediaTitle === localStorage.getItem("mediaTitle") && this._mediaArtist === localStorage.getItem("mediaArtist")) {
             //Current song unchanged
-            var cachedLyrics = localStorage.getItem("parsedLyrics")
-            if (cachedLyrics !== "") {
-              this._parsedLyrics = JSON.parse(cachedLyrics);
+            var cachedLyrics = localStorage.getItem("parsedLyrics");
+            if (cachedLyrics && cachedLyrics !== "") {
+              try {
+                this._parsedLyrics = JSON.parse(cachedLyrics);
+                // If parsedLyrics is not an array or is empty after parsing, treat as no lyrics
+                if (!Array.isArray(this._parsedLyrics) || this._parsedLyrics.length === 0) {
+                    this._parsedLyrics = ""; // Or [] depending on desired internal representation for "no lyrics"
+                    this._currentLyric = "";
+                }
+              } catch (e) {
+                console.error("Error parsing cached lyrics:", e);
+                this._parsedLyrics = ""; // Or []
+                this._currentLyric = "";
+                localStorage.setItem("parsedLyrics", ""); // Clear corrupted cache
+              }
+            } else {
+              // cachedLyrics is empty or null, so no lyrics
+              this._parsedLyrics = ""; // Or []
+              this._currentLyric = "";
             }
-
         }
         else {
             //New song playing
@@ -146,15 +161,24 @@ class KaraokeLyricsCard extends LitElement {
             this._currentLyrics = "";
             console.log(this._mediaArtist + " - " + this._mediaTitle + " Duration: " + this._mediaDuration + " media position: " + this._mediaPosition);
             var url = "http://" + lrclib_server + "/api/get?artist_name=" + this._mediaArtist + "&track_name=" + this._mediaTitle + "&album_name=" + this._mediaAlbum + "&duration=" + this._mediaDuration;
-            loadJSON(url, success, error);
+            loadJSON(url, success.bind(this), error.bind(this));
             localStorage.setItem("mediaTitle", this._mediaTitle);
             localStorage.setItem("mediaArtist", this._mediaArtist);
             localStorage.setItem("mediaAlbum", this._mediaAlbum);
         }
 
-        if(this._parsedLyrics !== ""){
-          this._currentLyrics = syncLyric(this._parsedLyrics, this._currentPosition);
-          this._currentLyric = this._parsedLyrics[this._currentLyrics].text;
+        if (this._parsedLyrics && this._parsedLyrics.length > 0) {
+          // Ensure _parsedLyrics is an array and has content
+          const lyricIndex = syncLyric(this._parsedLyrics, this._currentPosition);
+
+          if (lyricIndex !== null && this._parsedLyrics[lyricIndex] && typeof this._parsedLyrics[lyricIndex].text !== 'undefined') {
+            this._currentLyric = this._parsedLyrics[lyricIndex].text;
+          } else {
+            this._currentLyric = ""; 
+          }
+        } else {
+          // No lyrics loaded or lyrics are empty
+          this._currentLyric = "";
         }
       }
       else {
@@ -312,23 +336,32 @@ function loadJSON(path, success, error) {
 }
 
 function success(response) {
-  if (response.hasOwnProperty('statusCode')) {
-    if (response.statusCode !== 404) {
-      localStorage.setItem("parsedLyrics", "");
-      this._parsedLyrics = "";
-      this._currentLyric = "";
-      this._currentLyrics = "";
-      console.log("Status code 404")
-      return false;
-    }
+  if (response.hasOwnProperty('statusCode') && response.statusCode === 404 || !response.syncedLyrics) {
+    localStorage.setItem("parsedLyrics", "");
+    this._parsedLyrics = "";
+    this._currentLyric = "";
+    this._currentLyrics = "";
+    console.log("No lyrics found or error, lyrics cleared.");
+    return false;
   }
+  // If lyrics are found and valid
   var parsedLyrics = parseLyric(response.syncedLyrics);
-  localStorage.setItem("parsedLyrics", JSON.stringify(parsedLyrics));
+  if (parsedLyrics && parsedLyrics.length > 0) {
+    localStorage.setItem("parsedLyrics", JSON.stringify(parsedLyrics));
+    this._parsedLyrics = parsedLyrics; // Store the parsed array
+    // currentLyric will be updated in render based on _parsedLyrics
+  } else {
+    localStorage.setItem("parsedLyrics", "");
+    this._parsedLyrics = "";
+    this._currentLyric = "";
+    this._currentLyrics = "";
+    console.log("Parsed lyrics were empty, lyrics cleared.");
+  }
   return true;
 }
 
 function error(response) {
-  console.log("Error fetching lyrics");
+  console.log("Error fetching lyrics:", response);
   localStorage.setItem("parsedLyrics", "");
   this._parsedLyrics = "";
   this._currentLyric = "";
@@ -336,6 +369,13 @@ function error(response) {
 }
 
 function parseLyric(lrc) {
+    // Ensure lrc is a string before attempting to split it
+    if (typeof lrc !== 'string') {
+        // If lrc is null, undefined, or any other non-string type,
+        // return an empty array as there's nothing to parse.
+        return []; 
+    }
+
     // will match "[00:00.00] ooooh yeah!"
     // note: i use named capturing group
     const regex = /^\[(?<time>\d{2}:\d{2}(.\d{2})?)\](?<text>.*)/;
@@ -373,24 +413,58 @@ function parseLyric(lrc) {
     return output;
 }
 
-// lyrics (Array) - output from parseLyric function
-// time (Number) - current time from audio player
 function syncLyric(lyrics, time) {
+    // Ensure lyrics is an array
+    if (!Array.isArray(lyrics)) {
+        return null;
+    }
+
     const scores = [];
+    lyrics.forEach((lyric, index) => {
+        // Ensure lyric is an object and has a numeric 'time' property
+        if (typeof lyric !== 'object' || lyric === null || typeof lyric.time !== 'number' || isNaN(lyric.time)) {
+            return; // Skip this iteration
+        }
 
-    lyrics.forEach(lyric => {
-        // get the gap or distance or we call it score
         const score = time - lyric.time;
-
-        // only accept score with positive values
-        if (score >= 0) scores.push(score);
+        if (score >= 0) {
+            scores.push(score);
+        }
     });
 
-    if (scores.length == 0) return null;
+    if (scores.length === 0) {
+        return null;
+    }
 
-    // get the smallest value from scores
     const closest = Math.min(...scores);
+    // We need to find the original index from the lyrics array,
+    // as scores only contains valid, positive scores.
+    // This requires re-iterating or storing original indices.
+    // For simplicity and to match original logic's direct use of scores.indexOf(closest):
+    // We must ensure that the 'scores' array directly corresponds to valid lyrics.
+    // The current 'scores.indexOf(closest)' will give an index into the 'scores' array,
+    // which is NOT the same as the index in the original 'lyrics' array if some items were skipped.
 
-    // return the index of closest lyric
-    return scores.indexOf(closest);
+    // Correct approach to get original index:
+    // Store {score, originalIndex} and find the minimum score, then return originalIndex.
+    // OR, find the index in the original array that produced that score.
+
+    let bestMatchIndex = -1;
+    let minPositiveScore = Infinity;
+
+    lyrics.forEach((lyric, index) => {
+        if (typeof lyric === 'object' && lyric !== null && typeof lyric.time === 'number' && !isNaN(lyric.time)) {
+            const score = time - lyric.time;
+            if (score >= 0 && score < minPositiveScore) {
+                minPositiveScore = score;
+                bestMatchIndex = index;
+            }
+        }
+    });
+    
+    if (bestMatchIndex !== -1) {
+        return bestMatchIndex;
+    }
+
+    return null; // No suitable lyric found
 }
